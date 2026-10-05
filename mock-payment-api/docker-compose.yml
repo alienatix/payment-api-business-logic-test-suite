@@ -1,0 +1,9 @@
+services:
+  mock-payment-api:
+    build: .
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      ACCEPT_NEGATIVE_AMOUNT: "true"
+      IGNORE_IDEMPOTENCY_KEY: "true"
+      NO_DUPLICATE_PROTECTION: "true"
