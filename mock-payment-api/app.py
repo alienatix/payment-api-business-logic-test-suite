@@ -33,8 +33,11 @@ class Handler(BaseHTTPRequestHandler):
         kind = ROUTES.get(self.path.split("?")[0])
         if kind is None:
             return self.send_json(404, {"error": "not found"})
-        raw = self.rfile.read(int(self.headers.get("Content-Length", 0)))
         try:
+            length = int(self.headers.get("Content-Length", 0))
+            if length < 0:
+                raise ValueError("negative Content-Length")
+            raw = self.rfile.read(length)
             body = json.loads(raw)
             amount = Decimal(str(body["amount"]))
         except (ValueError, KeyError, InvalidOperation, TypeError):
