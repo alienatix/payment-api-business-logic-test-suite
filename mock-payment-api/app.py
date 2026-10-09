@@ -18,6 +18,9 @@ def flag(name):
 
 
 ACCEPT_NEGATIVE_AMOUNT = flag("ACCEPT_NEGATIVE_AMOUNT")
+ACCEPT_EXCESS_PRECISION = flag("ACCEPT_EXCESS_PRECISION")
+ACCEPT_HUGE_AMOUNT = flag("ACCEPT_HUGE_AMOUNT")
+MAX_AMOUNT = Decimal("1000000")
 IGNORE_IDEMPOTENCY_KEY = flag("IGNORE_IDEMPOTENCY_KEY")
 NO_DUPLICATE_PROTECTION = flag("NO_DUPLICATE_PROTECTION")
 
@@ -44,6 +47,10 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(400, {"error": "invalid amount"})
         if not amount.is_finite() or (amount <= 0 and not ACCEPT_NEGATIVE_AMOUNT):
             return self.send_json(400, {"error": "amount must be positive"})
+        if amount.as_tuple().exponent < -2 and not ACCEPT_EXCESS_PRECISION:
+            return self.send_json(400, {"error": "too many decimal places"})
+        if amount > MAX_AMOUNT and not ACCEPT_HUGE_AMOUNT:
+            return self.send_json(400, {"error": "amount too large"})
 
         key = self.headers.get("Idempotency-Key")
         fingerprint = (self.path, raw)

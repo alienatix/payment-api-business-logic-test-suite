@@ -9,6 +9,8 @@ Endpoints: `POST /payments`, `POST /refunds`, `POST /reloads` with a JSON body s
 | Environment flag          | When `true`                                              |
 |---------------------------|----------------------------------------------------------|
 | `ACCEPT_NEGATIVE_AMOUNT`  | zero and negative amounts are accepted                   |
+| `ACCEPT_EXCESS_PRECISION` | amounts with more than 2 decimal places are accepted     |
+| `ACCEPT_HUGE_AMOUNT`      | amounts above 1,000,000 are accepted                     |
 | `IGNORE_IDEMPOTENCY_KEY`  | the `Idempotency-Key` header is ignored                  |
 | `NO_DUPLICATE_PROTECTION` | identical requests without a key are all processed       |
 
