@@ -17,6 +17,8 @@ Endpoints: `POST /payments`, `POST /refunds`, `POST /reloads` with a JSON body s
 
 All flags default to `false` (the secure behaviour).
 
+Amounts must be plain decimals (`10`, `10.50`, `1e2`); spaces, underscores, signs such as `+`, thousands separators and non-ASCII digits get 400. Other methods on the routes get 405.
+
 ```
 python app.py                                   # secure
 ACCEPT_NEGATIVE_AMOUNT=true python app.py       # one vulnerability on

@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import threading
 import time
 import uuid
@@ -25,6 +26,7 @@ IGNORE_IDEMPOTENCY_KEY = flag("IGNORE_IDEMPOTENCY_KEY")
 NO_DUPLICATE_PROTECTION = flag("NO_DUPLICATE_PROTECTION")
 ERROR_IN_BODY = flag("ERROR_IN_BODY")
 
+PLAIN_DECIMAL = re.compile(r"-?[0-9]+(\.[0-9]+)?([eE][+-]?[0-9]+)?")
 ROUTES = {"/payments": "payment", "/refunds": "refund", "/reloads": "reload"}
 
 lock = threading.Lock()
@@ -42,8 +44,11 @@ class Handler(BaseHTTPRequestHandler):
             if length < 0:
                 raise ValueError("negative Content-Length")
             raw = self.rfile.read(length)
-            body = json.loads(raw)
-            amount = Decimal(str(body["amount"]))
+            body = json.loads(raw, parse_float=Decimal)
+            text = str(body["amount"])
+            if not PLAIN_DECIMAL.fullmatch(text):
+                raise ValueError("amount is not a plain decimal")
+            amount = Decimal(text)
         except (ValueError, KeyError, InvalidOperation, TypeError):
             return self.send_json(400, {"error": "invalid amount"})
         if not amount.is_finite() or (amount <= 0 and not ACCEPT_NEGATIVE_AMOUNT):
@@ -73,11 +78,18 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(200, {"error": message, "amount": str(amount)})
         self.send_json(400, {"error": message})
 
-    def send_json(self, status, payload):
+    def method_not_allowed(self):
+        self.send_json(405, {"error": "method not allowed"}, {"Allow": "POST"})
+
+    do_GET = do_PUT = do_PATCH = do_DELETE = method_not_allowed
+
+    def send_json(self, status, payload, headers=None):
         data = json.dumps(payload).encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(data)))
+        for name, value in (headers or {}).items():
+            self.send_header(name, value)
         self.end_headers()
         self.wfile.write(data)
 
