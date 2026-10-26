@@ -554,6 +554,36 @@ class PaymentAmountManipulationScanRuleUnitTest
         assertThat(handler.rawBodies, contains("{\"amount\":-1e+3}", "{\"amount\":0}"));
     }
 
+    @Test
+    void shouldKeepJsonNumberInArrayUnquoted() throws Exception {
+        // Given
+        AmountHandler handler =
+                new AmountHandler(
+                        PATH, "amount", PaymentAmountManipulationScanRuleUnitTest::rejectInvalid);
+        nano.addHandler(handler);
+        rule.setAttackStrength(AttackStrength.LOW);
+        rule.init(requestMessage("POST", "application/json", "{\"amount\":[10]}"), parent);
+        // When
+        rule.scan();
+        // Then
+        assertThat(handler.rawBodies, contains("{\"amount\":[-10]}", "{\"amount\":[0]}"));
+    }
+
+    @Test
+    void shouldNegateExplicitlyPositiveAmount() throws Exception {
+        // Given
+        AmountHandler handler =
+                new AmountHandler(
+                        PATH, "amount", PaymentAmountManipulationScanRuleUnitTest::rejectInvalid);
+        nano.addHandler(handler);
+        rule.setAttackStrength(AttackStrength.LOW);
+        rule.init(postMessage("amount=%2B10"), parent);
+        // When
+        rule.scan();
+        // Then
+        assertThat(handler.received, contains("-10", "0"));
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"PUT", "PATCH", "DELETE"})
     void shouldAlertForOtherStateChangingMethods(String method) throws Exception {
@@ -617,6 +647,7 @@ class PaymentAmountManipulationScanRuleUnitTest
                 "{\"status\":\"ok\",\"note\":\"not invalid\",\"amount\":-10.00}",
                 "{\"data\":{\"error\":\"x\"},\"amount\":-10.00}",
                 "amount=-10.00",
+                "null",
                 "<p>error: amount -10.00</p>"
             })
     void shouldNotTreatOtherBodiesAsErrors(String body) {

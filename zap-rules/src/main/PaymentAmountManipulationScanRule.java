@@ -79,6 +79,7 @@ public class PaymentAmountManipulationScanRule extends AbstractAppParamPlugin
 
     private static final Pattern CURRENCY_OR_SPACE = Pattern.compile("[\\p{Sc}\\s]");
     private static final Pattern JSON_NUMBER = Pattern.compile("-?\\d+(\\.\\d+)?([eE][+-]?\\d+)?");
+    private static final Pattern LEADING_PLUS = Pattern.compile("^([\\p{Sc}\\s]*)\\+");
     private static final Pattern EXPONENT = Pattern.compile("[eE]");
     private static final Pattern THOUSANDS_SEPARATED =
             Pattern.compile("\\d{1,3}(,\\d{3})+(\\.\\d+)?");
@@ -90,6 +91,7 @@ public class PaymentAmountManipulationScanRule extends AbstractAppParamPlugin
     private static final Set<String> FAILURE_STATUSES =
             Set.of("error", "fail", "failed", "failure", "invalid", "rejected", "declined");
 
+    private static final String PROBE_MARKER = "__amount_probe__";
     private static final String NON_NUMERIC_CONTROL_VALUE = "notanumber";
     private static final String EXCESS_PRECISION_DIGITS = "001";
     private static final String ZERO_AMOUNT = "0";
@@ -191,14 +193,15 @@ public class PaymentAmountManipulationScanRule extends AbstractAppParamPlugin
         try {
             ComparableResponse baseline = new ComparableResponse(getBaseMsg(), null);
             Set<BigDecimal> baselineNumbers = numbersIn(getBaseMsg());
-            String negatedPayload = "-" + paramValue;
+            String negatedPayload = negate(paramValue);
+            boolean jsonNumber = isJsonNumber(paramName);
             Candidate candidate = null;
 
             for (String payload : getPayloads(paramValue, amount)) {
                 if (isStop()) {
                     return;
                 }
-                HttpMessage attackMsg = sendWithValue(paramName, payload);
+                HttpMessage attackMsg = sendWithValue(paramName, payload, jsonNumber);
                 if (!isSuccess(attackMsg)) {
                     continue;
                 }
@@ -233,7 +236,8 @@ public class PaymentAmountManipulationScanRule extends AbstractAppParamPlugin
             if (candidate == null || isStop()) {
                 return;
             }
-            HttpMessage controlMsg = sendWithValue(paramName, NON_NUMERIC_CONTROL_VALUE);
+            HttpMessage controlMsg =
+                    sendWithValue(paramName, NON_NUMERIC_CONTROL_VALUE, jsonNumber);
             if (isSuccess(controlMsg) && isSimilar(controlMsg, baseline)) {
                 return;
             }
@@ -251,33 +255,34 @@ public class PaymentAmountManipulationScanRule extends AbstractAppParamPlugin
         }
     }
 
-    private HttpMessage sendWithValue(String paramName, String value) throws IOException {
+    private HttpMessage sendWithValue(String paramName, String value, boolean jsonNumber)
+            throws IOException {
         HttpMessage msg = getNewMsg();
-        setParameter(msg, paramName, value);
-        keepJsonNumberUnquoted(msg, paramName, value);
+        if (jsonNumber && JSON_NUMBER.matcher(value).matches()) {
+            // The JSON variant quotes the injected value of a number, so set it as is.
+            setEscapedParameter(msg, paramName, value);
+        } else {
+            setParameter(msg, paramName, value);
+        }
         sendAndReceive(msg);
         return msg;
     }
 
     /**
-     * The JSON variant always quotes the injected value, so a numeric field would be sent as a
-     * string. Restores the number type if the original field was a number and the value is a valid
-     * JSON number.
+     * Tells whether the parameter is an unquoted JSON number in the original request, by checking
+     * if the variant leaves a quote before the injected value, which it does for strings only.
      */
-    private void keepJsonNumberUnquoted(HttpMessage msg, String paramName, String value) {
-        String key = "\"" + Pattern.quote(paramName) + "\"\\s*:\\s*";
-        if (!JSON_NUMBER.matcher(value).matches()
-                || !msg.getRequestHeader().hasContentType("json")
-                || !Pattern.compile(key + "-?\\d")
-                        .matcher(getBaseMsg().getRequestBody().toString())
-                        .find()) {
-            return;
+    private boolean isJsonNumber(String paramName) {
+        if (!getBaseMsg().getRequestHeader().hasContentType("json")) {
+            return false;
         }
-        msg.setRequestBody(
-                Pattern.compile("(" + key + ")\"" + Pattern.quote(value) + "\"")
-                        .matcher(msg.getRequestBody().toString())
-                        .replaceFirst("$1" + value));
-        msg.getRequestHeader().setContentLength(msg.getRequestBody().length());
+        String body = setEscapedParameter(getNewMsg(), paramName, PROBE_MARKER);
+        int index = body == null ? -1 : body.indexOf(PROBE_MARKER);
+        return index > 0 && body.charAt(index - 1) != '"';
+    }
+
+    private static String negate(String value) {
+        return "-" + LEADING_PLUS.matcher(value).replaceFirst("$1");
     }
 
     private boolean isSimilar(HttpMessage msg, ComparableResponse baseline) {
@@ -305,7 +310,7 @@ public class PaymentAmountManipulationScanRule extends AbstractAppParamPlugin
     private List<String> getPayloads(String value, BigDecimal amount) {
         List<String> payloads = new ArrayList<>();
         if (amount.signum() > 0) {
-            payloads.add("-" + value);
+            payloads.add(negate(value));
         }
         if (amount.signum() != 0) {
             payloads.add(ZERO_AMOUNT);
@@ -386,6 +391,9 @@ public class PaymentAmountManipulationScanRule extends AbstractAppParamPlugin
         try {
             json = JSONObject.fromObject(body);
         } catch (JSONException e) {
+            return false;
+        }
+        if (json.isNullObject()) {
             return false;
         }
         return ERROR_KEYS.stream().anyMatch(key -> hasErrorValue(json, key))
