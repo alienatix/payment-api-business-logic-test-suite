@@ -274,7 +274,7 @@ public class PaymentAmountManipulationScanRule extends AbstractAppParamPlugin
             return;
         }
         msg.setRequestBody(
-                Pattern.compile("(" + key + ")\"" + value + "\"")
+                Pattern.compile("(" + key + ")\"" + Pattern.quote(value) + "\"")
                         .matcher(msg.getRequestBody().toString())
                         .replaceFirst("$1" + value));
         msg.getRequestHeader().setContentLength(msg.getRequestBody().length());
@@ -316,9 +316,11 @@ public class PaymentAmountManipulationScanRule extends AbstractAppParamPlugin
             }
             payloads.add(HUGE_AMOUNT);
         }
-        if (isAtLeast(AttackStrength.HIGH)) {
-            payloads.add("1e3");
-        }
+        payloads.removeIf(
+                payload -> {
+                    BigDecimal sent = parseAmount(payload);
+                    return sent != null && sent.compareTo(amount) == 0;
+                });
         return payloads;
     }
 

@@ -344,7 +344,7 @@ class PaymentAmountManipulationScanRuleUnitTest
         // When
         rule.scan();
         // Then
-        assertThat(handler.received, contains("-10.00", "0", "10.00001", "999999999999", "1e3"));
+        assertThat(handler.received, contains("-10.00", "0", "10.00001", "999999999999"));
     }
 
     @ParameterizedTest
@@ -539,6 +539,21 @@ class PaymentAmountManipulationScanRuleUnitTest
         assertThat(handler.rawBodies, contains("{\"amount\":\"-10.00\"}", "{\"amount\":\"0\"}"));
     }
 
+    @Test
+    void shouldKeepJsonNumberPayloadWithExponentSignUnquoted() throws Exception {
+        // Given
+        AmountHandler handler =
+                new AmountHandler(
+                        PATH, "amount", PaymentAmountManipulationScanRuleUnitTest::rejectInvalid);
+        nano.addHandler(handler);
+        rule.setAttackStrength(AttackStrength.LOW);
+        rule.init(requestMessage("POST", "application/json", "{\"amount\":1e+3}"), parent);
+        // When
+        rule.scan();
+        // Then
+        assertThat(handler.rawBodies, contains("{\"amount\":-1e+3}", "{\"amount\":0}"));
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"PUT", "PATCH", "DELETE"})
     void shouldAlertForOtherStateChangingMethods(String method) throws Exception {
@@ -564,28 +579,6 @@ class PaymentAmountManipulationScanRuleUnitTest
         HttpMessage msg = postMessage("amount=10.00");
         msg.getResponseBody().setBody(body);
         rule.init(msg, parent);
-        // When
-        rule.scan();
-        // Then
-        assertThat(alertsRaised, is(empty()));
-    }
-
-    @Test
-    void shouldNotUseSameValuePayloadsAsSimilarResponseCandidates() throws Exception {
-        // Given
-        nano.addHandler(
-                new AmountHandler(
-                        PATH,
-                        "amount",
-                        value -> {
-                            BigDecimal amount =
-                                    PaymentAmountManipulationScanRule.parseAmount(value);
-                            return amount != null && amount.compareTo(BigDecimal.TEN) == 0
-                                    ? json(Response.Status.OK, BASELINE_BODY)
-                                    : json(Response.Status.BAD_REQUEST, "{\"error\":1}");
-                        }));
-        rule.setAttackStrength(AttackStrength.HIGH);
-        rule.init(postMessage("amount=10.00"), parent);
         // When
         rule.scan();
         // Then
@@ -701,7 +694,7 @@ class PaymentAmountManipulationScanRuleUnitTest
     }
 
     @Test
-    void shouldNotSendPayloadEqualToOriginalAmount() throws Exception {
+    void shouldSkipExcessPrecisionPayloadForExponentOriginalAtHighStrength() throws Exception {
         // Given
         AmountHandler handler =
                 new AmountHandler(
@@ -712,27 +705,38 @@ class PaymentAmountManipulationScanRuleUnitTest
         // When
         rule.scan();
         // Then
-        assertThat(handler.received, contains("-1e3", "0", "999999999999", "1e3"));
+        assertThat(handler.received, contains("-1e3", "0", "999999999999"));
         assertThat(alertsRaised, is(empty()));
     }
 
     @Test
-    void shouldNotUseSameValuePayloadAsCandidateWhenOnlyItGetsSimilarResponse() throws Exception {
+    void shouldNotSendHugeAmountPayloadIfOriginalIsHugeAmount() throws Exception {
         // Given
-        nano.addHandler(
+        AmountHandler handler =
                 new AmountHandler(
-                        PATH,
-                        "amount",
-                        value ->
-                                "1e3".equals(value)
-                                        ? json(Response.Status.OK, BASELINE_BODY)
-                                        : rejectInvalid(value)));
-        rule.setAttackStrength(AttackStrength.HIGH);
-        rule.init(postMessage("amount=1e3"), parent);
+                        PATH, "amount", PaymentAmountManipulationScanRuleUnitTest::rejectInvalid);
+        nano.addHandler(handler);
+        rule.setAttackStrength(AttackStrength.MEDIUM);
+        rule.init(postMessage("amount=999999999999"), parent);
         // When
         rule.scan();
         // Then
-        assertThat(alertsRaised, is(empty()));
+        assertThat(handler.received, contains("-999999999999", "0", "999999999999.001"));
+    }
+
+    @Test
+    void shouldNotSendHugeAmountPayloadIfOriginalIsEquivalentHugeAmount() throws Exception {
+        // Given
+        AmountHandler handler =
+                new AmountHandler(
+                        PATH, "amount", PaymentAmountManipulationScanRuleUnitTest::rejectInvalid);
+        nano.addHandler(handler);
+        rule.setAttackStrength(AttackStrength.MEDIUM);
+        rule.init(postMessage("amount=999999999999.00"), parent);
+        // When
+        rule.scan();
+        // Then
+        assertThat(handler.received, contains("-999999999999.00", "0", "999999999999.00001"));
     }
 
     @Test
