@@ -5,7 +5,7 @@ Mirror of the ZAP active scan rule source, kept in sync with the pull request br
 
 | Rule | Plugin ID | Source commit | Status |
 | --- | --- | --- | --- |
-| Payment Amount Manipulation | 40049 | `3e453b037f` | Under review |
+| Payment Amount Manipulation | 40049 | `9cd7f805bc` | Under review |
 
 - `src/main/PaymentAmountManipulationScanRule.java`
 - `src/test/PaymentAmountManipulationScanRuleUnitTest.java`
