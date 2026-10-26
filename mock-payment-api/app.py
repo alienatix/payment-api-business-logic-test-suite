@@ -23,6 +23,7 @@ ACCEPT_HUGE_AMOUNT = flag("ACCEPT_HUGE_AMOUNT")
 MAX_AMOUNT = Decimal("1000000")
 IGNORE_IDEMPOTENCY_KEY = flag("IGNORE_IDEMPOTENCY_KEY")
 NO_DUPLICATE_PROTECTION = flag("NO_DUPLICATE_PROTECTION")
+ERROR_IN_BODY = flag("ERROR_IN_BODY")
 
 ROUTES = {"/payments": "payment", "/refunds": "refund", "/reloads": "reload"}
 
@@ -46,11 +47,11 @@ class Handler(BaseHTTPRequestHandler):
         except (ValueError, KeyError, InvalidOperation, TypeError):
             return self.send_json(400, {"error": "invalid amount"})
         if not amount.is_finite() or (amount <= 0 and not ACCEPT_NEGATIVE_AMOUNT):
-            return self.send_json(400, {"error": "amount must be positive"})
+            return self.reject_amount("amount must be positive", amount)
         if amount.as_tuple().exponent < -2 and not ACCEPT_EXCESS_PRECISION:
-            return self.send_json(400, {"error": "too many decimal places"})
+            return self.reject_amount("too many decimal places", amount)
         if amount > MAX_AMOUNT and not ACCEPT_HUGE_AMOUNT:
-            return self.send_json(400, {"error": "amount too large"})
+            return self.reject_amount("amount too large", amount)
 
         key = self.headers.get("Idempotency-Key")
         fingerprint = (self.path, raw)
@@ -66,6 +67,11 @@ class Handler(BaseHTTPRequestHandler):
             if key:
                 by_key[key] = result
         self.send_json(201, result)
+
+    def reject_amount(self, message, amount):
+        if ERROR_IN_BODY:
+            return self.send_json(200, {"error": message, "amount": str(amount)})
+        self.send_json(400, {"error": message})
 
     def send_json(self, status, payload):
         data = json.dumps(payload).encode()
